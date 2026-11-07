@@ -1,0 +1,29 @@
+{
+  "index_patterns": ["logs-saas-*"],
+  "priority": 500,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp":    { "type": "date" },
+        "level":         { "type": "keyword" },
+        "service":       { "type": "keyword" },
+        "source":        { "type": "keyword" },
+        "http_method":   { "type": "keyword" },
+        "endpoint":      { "type": "keyword" },
+        "status_code":   { "type": "integer" },
+        "response_time": { "type": "float" },
+        "user_id":       { "type": "keyword" },
+        "tenant":        { "type": "keyword" },
+        "feature":       { "type": "keyword" },
+        "client_ip":     { "type": "ip" },
+        "sql_query":     { "type": "text" },
+        "message":       { "type": "text" },
+        "file_name":     { "type": "keyword" }
+      }
+    }
+  }
+}

@@ -1,0 +1,131 @@
+# SaaSWatch — environnement Big Data (Sprint 2)
+# Lancement : docker compose up -d
+name: saaswatch
+
+services:
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: saaswatch-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false          # sécurité désactivée en développement
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [saaswatch-net]
+
+  es-init:
+    # Conteneur « une seule fois » : crée l'index template puis s'arrête
+    image: curlimages/curl:8.10.1
+    container_name: saaswatch-es-init
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./elasticsearch:/init:ro
+    entrypoint: ["sh", "/init/init.sh"]
+    restart: "no"
+    networks: [saaswatch-net]
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION}
+    container_name: saaswatch-logstash
+    depends_on:
+      es-init:
+        condition: service_completed_successfully   # attend que le template soit créé
+    environment:
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+      - ES_HOST=http://elasticsearch:9200
+    volumes:
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./logstash/config/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./data/uploads:/data/uploads:ro
+      - logstash_data:/usr/share/logstash/data
+    ports:
+      - "9600:9600"
+    networks: [saaswatch-net]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
+    container_name: saaswatch-kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks: [saaswatch-net]
+
+  mongodb:
+    image: mongo:7
+    container_name: saaswatch-mongo
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [saaswatch-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: saaswatch-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [saaswatch-net]
+
+  webapp:
+    build: ./webapp
+    container_name: saaswatch-webapp
+    env_file: .env
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/uploads:/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [saaswatch-net]
+
+volumes:
+  es_data:
+  mongo_data:
+  redis_data:
+  logstash_data:
+
+networks:
+  saaswatch-net:
+    driver: bridge
